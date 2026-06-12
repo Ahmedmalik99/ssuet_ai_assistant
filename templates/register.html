@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#6a0dad">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Register - SSUET AI Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/auth.css">
+    <style>
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 6px;
+            text-transform: uppercase;
+        }
+        .status-badge.yellow {
+            background-color: #fef3c7;
+            color: #d97706;
+            border: 1px solid #fde68a;
+        }
+        .status-badge.green {
+            background-color: #d1fae5;
+            color: #059669;
+            border: 1px solid #a7f3d0;
+        }
+        .otp-input-style {
+            letter-spacing: 8px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: 700;
+            font-family: monospace;
+            color: #6a0dad;
+        }
+        .countdown-text {
+            font-size: 12px;
+            color: #ef4444;
+            margin-top: 6px;
+            font-weight: 500;
+        }
+        .btn-inline {
+            background: linear-gradient(135deg, #8b5cf6, #6a0dad);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-family: inherit;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 8px;
+        }
+        .btn-inline:hover {
+            opacity: 0.95;
+            transform: translateY(-1px);
+        }
+        .btn-inline:disabled {
+            background: #e5e7eb;
+            color: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container" style="max-width: 450px;">
+        <div class="ssuet-branding">
+            <div class="auth-logo">🎓</div>
+        </div>
+        <h1 class="auth-title">Join SSUET AI</h1>
+        <p class="auth-subtitle">Create an account to access SSUET AI Assistant and exclusive features</p>
+
+        <div class="notice-box">
+            <strong>📋 Admission Lead Tracking:</strong>
+            Your information will be securely stored as an admission lead for our admissions team.
+        </div>
+
+        <div class="error-msg" id="errorMsg"></div>
+        <div class="success-msg" id="successMsg"></div>
+
+        <!-- Step 1: Verification Form -->
+        <div id="otpSection" style="margin-bottom: 20px; border-bottom: 1px solid #f3e8ff; padding-bottom: 20px;">
+            <div class="form-group">
+                <label class="form-label">Full Name</label>
+                <input type="text" class="form-input" id="name" placeholder="Enter your full name" required>
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 8px;">
+                <label class="form-label">Email Address</label>
+                <input type="email" class="form-input" id="email" placeholder="student@ssuet.edu.pk" required>
+            </div>
+            
+            <button type="button" class="btn-inline" id="sendOtpBtn" onclick="sendOtpCode()">Send Verification Code</button>
+            <div id="otpStatusBadge" class="status-badge yellow" style="margin-left: 8px; display: none;">Pending OTP</div>
+            <div id="timer" class="countdown-text"></div>
+
+            <div id="otpInputDiv" style="display: none; margin-top: 16px; background: #faf5ff; padding: 16px; border-radius: 10px; border: 1px dashed #d8b4fe;">
+                <label class="form-label" style="text-align: center; display: block; color: #6a0dad;">Enter 6-Digit Verification Code</label>
+                <input type="text" class="form-input otp-input-style" id="otpCode" placeholder="000000" maxlength="6" pattern="\d{6}" required>
+                <button type="button" class="btn-primary" id="verifyOtpBtn" onclick="verifyOtpCode()" style="margin-top: 12px; width: 100%;">Verify Email</button>
+            </div>
+        </div>
+
+        <!-- Step 2: Remaining Registration Form -->
+        <form id="registerForm" onsubmit="handleRegister(event)">
+            <div class="form-group">
+                <label class="form-label">Phone Number</label>
+                <input type="tel" class="form-input" id="phone" placeholder="+92-300-1234567" required disabled>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-input" id="password" placeholder="Minimum 6 characters" required disabled>
+            </div>
+            <button type="submit" class="btn-primary" id="submitBtn" disabled style="background: #e5e7eb; color: #9ca3af; cursor: not-allowed;">Create Account</button>
+        </form>
+
+        <div class="auth-footer">
+            Already have an account? <a href="/login">Login Here</a>
+        </div>
+    </div>
+
+    <script>
+        let countdownInterval;
+        let isEmailVerified = false;
+
+        function getCsrfToken() {
+            return document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        }
+
+        async function sendOtpCode() {
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim().lowerCase || document.getElementById('email').value.trim().toLowerCase();
+            const sendOtpBtn = document.getElementById('sendOtpBtn');
+            const errorMsg = document.getElementById('errorMsg');
+            const successMsg = document.getElementById('successMsg');
+            const otpStatusBadge = document.getElementById('otpStatusBadge');
+
+            if (!name || !email) {
+                alert('Please enter your Name and Email address first.');
+                return;
+            }
+
+            if (!email.includes('@')) {
+                alert('Please enter a valid email address.');
+                return;
+            }
+
+            sendOtpBtn.disabled = true;
+            sendOtpBtn.textContent = 'Sending...';
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/send-otp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCsrfToken()
+                    },
+                    body: JSON.stringify({ name, email })
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    successMsg.textContent = data.message;
+                    successMsg.style.display = 'block';
+                    
+                    // Show OTP input section
+                    document.getElementById('otpInputDiv').style.display = 'block';
+                    otpStatusBadge.style.display = 'inline-block';
+                    otpStatusBadge.className = 'status-badge yellow';
+                    otpStatusBadge.textContent = 'Pending OTP';
+                    
+                    // Start 60s cooldown timer for resend
+                    startTimer(60);
+                } else {
+                    errorMsg.textContent = data.error || 'Failed to send verification code';
+                    errorMsg.style.display = 'block';
+                    sendOtpBtn.disabled = false;
+                    sendOtpBtn.textContent = 'Send Verification Code';
+                }
+            } catch (err) {
+                errorMsg.textContent = 'Connection error. Please try again.';
+                errorMsg.style.display = 'block';
+                sendOtpBtn.disabled = false;
+                sendOtpBtn.textContent = 'Send Verification Code';
+            }
+        }
+
+        function startTimer(durationSeconds) {
+            clearInterval(countdownInterval);
+            const timerDisplay = document.getElementById('timer');
+            const sendOtpBtn = document.getElementById('sendOtpBtn');
+            let timeLeft = durationSeconds;
+            
+            timerDisplay.textContent = `Resend available in ${timeLeft}s`;
+
+            countdownInterval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    timerDisplay.textContent = '';
+                    if (!isEmailVerified) {
+                        sendOtpBtn.disabled = false;
+                        sendOtpBtn.textContent = 'Resend Code';
+                    }
+                } else {
+                    timerDisplay.textContent = `Resend available in ${timeLeft}s`;
+                }
+            }, 1000);
+        }
+
+        async function verifyOtpCode() {
+            const email = document.getElementById('email').value.trim().toLowerCase();
+            const otpCode = document.getElementById('otpCode').value.trim();
+            const verifyOtpBtn = document.getElementById('verifyOtpBtn');
+            const errorMsg = document.getElementById('errorMsg');
+            const successMsg = document.getElementById('successMsg');
+            const otpStatusBadge = document.getElementById('otpStatusBadge');
+
+            if (!otpCode || otpCode.length !== 6) {
+                alert('Please enter the 6-digit verification code.');
+                return;
+            }
+
+            verifyOtpBtn.disabled = true;
+            verifyOtpBtn.textContent = 'Verifying...';
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/verify-otp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCsrfToken()
+                    },
+                    body: JSON.stringify({ email, otp_code: otpCode })
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    successMsg.textContent = data.message;
+                    successMsg.style.display = 'block';
+                    
+                    // Email verified successfully
+                    isEmailVerified = true;
+                    clearInterval(countdownInterval);
+                    document.getElementById('timer').textContent = '';
+                    
+                    // Update UI Status Badge
+                    otpStatusBadge.className = 'status-badge green';
+                    otpStatusBadge.textContent = 'Verified ✓';
+                    
+                    // Disable Step 1 fields
+                    document.getElementById('name').disabled = true;
+                    document.getElementById('email').disabled = true;
+                    document.getElementById('sendOtpBtn').style.display = 'none';
+                    document.getElementById('otpInputDiv').style.display = 'none';
+                    
+                    // Enable Step 2 fields
+                    document.getElementById('phone').disabled = false;
+                    document.getElementById('password').disabled = false;
+                    
+                    // Enable Create Account button and style it
+                    const submitBtn = document.getElementById('submitBtn');
+                    submitBtn.disabled = false;
+                    submitBtn.style.background = 'linear-gradient(135deg, #8b5cf6, #6a0dad)';
+                    submitBtn.style.color = 'white';
+                    submitBtn.style.cursor = 'pointer';
+                } else {
+                    errorMsg.textContent = data.error || 'Invalid verification code';
+                    errorMsg.style.display = 'block';
+                    verifyOtpBtn.disabled = false;
+                    verifyOtpBtn.textContent = 'Verify Email';
+                }
+            } catch (err) {
+                errorMsg.textContent = 'Connection error. Please try again.';
+                errorMsg.style.display = 'block';
+                verifyOtpBtn.disabled = false;
+                verifyOtpBtn.textContent = 'Verify Email';
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            if (!isEmailVerified) {
+                alert('Please verify your email address first.');
+                return;
+            }
+
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim().toLowerCase();
+            const phone = document.getElementById('phone').value.trim();
+            const password = document.getElementById('password').value;
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const errorMsg = document.getElementById('errorMsg');
+            const successMsg = document.getElementById('successMsg');
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating Account...';
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            try {
+                const res = await fetch('/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCsrfToken()
+                    },
+                    body: JSON.stringify({ name, email, phone, password })
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    successMsg.textContent = data.message;
+                    successMsg.style.display = 'block';
+                    setTimeout(() => window.location.href = '/login', 1500);
+                } else {
+                    errorMsg.textContent = data.error || 'Registration failed';
+                    errorMsg.style.display = 'block';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Create Account';
+                }
+            } catch(err) {
+                errorMsg.textContent = 'Connection error. Please try again.';
+                errorMsg.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Account';
+            }
+        }
+    </script>
+</body>
+</html>

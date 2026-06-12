@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#6a0dad">
+    <meta name="description" content="SSUET AI Assistant - Your intelligent guide for Sir Syed University of Engineering and Technology">
+
+    <title>{% block title %}SSUET AI Assistant{% endblock %}</title>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Main Stylesheets -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    {% block extra_css %}{% endblock %}
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><circle cx='30' cy='30' r='28' fill='%234a0080'/><text x='30' y='38' font-size='28' text-anchor='middle' fill='white'>🤖</text></svg>">
+
+    <!-- Chart.js for Admin Dashboard -->
+    {% if include_charts %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    {% endif %}
+</head>
+<body>
+    {% block content %}{% endblock %}
+
+    <!-- Main JavaScript -->
+    <script src="/static/js/main.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

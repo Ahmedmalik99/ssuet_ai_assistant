@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#6a0dad">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Admin Dashboard - SSUET AI Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="topbar-link">← Back to Chat</a>
+  </div>
+  <div class="topbar-right">
+    <a href="https://www.facebook.com/SSUET.Karachi" target="_blank" class="social-icon">f</a>
+    <a href="https://twitter.com/ssuet_karachi" target="_blank" class="social-icon">𝕏</a>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <div class="uni-name">
+      <div class="uni-name-top">Admin Dashboard</div>
+      <div class="uni-name-bot">SSUET AI ASSISTANT</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      <span class="status-label">Live</span>
+    </div>
+    <button style="padding:10px 16px;background:var(--purple);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600;" onclick="window.location.href='/logout'">🚪 Logout</button>
+  </div>
+</div>
+
+<!-- Admin Container -->
+<div class="admin-container">
+  <div class="admin-header">
+    <div>
+      <h1 class="admin-title">📊 Dashboard</h1>
+      <p class="admin-subtitle">Real-time analytics and system management</p>
+    </div>
+    <div class="admin-controls">
+      <button class="admin-btn secondary" onclick="refreshStats()">🔄 Refresh</button>
+      <button class="admin-btn secondary" onclick="exportData()">📥 Export</button>
+    </div>
+  </div>
+
+  <!-- Statistics Cards -->
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card">
+      <div class="stat-icon">👥</div>
+      <div class="stat-label">Total Users</div>
+      <div class="stat-value" id="totalUsers">-</div>
+      <div class="stat-change">Active accounts</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">💬</div>
+      <div class="stat-label">Total Messages</div>
+      <div class="stat-value" id="totalMessages">-</div>
+      <div class="stat-change">All conversations</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📋</div>
+      <div class="stat-label">Admission Leads</div>
+      <div class="stat-value" id="totalLeads">-</div>
+      <div class="stat-change">Prospective students</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">⭐</div>
+      <div class="stat-label">Avg Rating</div>
+      <div class="stat-value" id="avgRating">-</div>
+      <div class="stat-change">Feedback score</div>
+    </div>
+  </div>
+
+  <!-- Charts Section -->
+  <div class="section-header">
+    <h2 class="section-title">📈 Analytics</h2>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(400px, 1fr));gap:16px;margin-bottom:28px;">
+    <div class="chart-container">
+      <h3 class="chart-title">Messages per Day (Last 7 Days)</h3>
+      <div class="chart-wrapper">
+        <canvas id="messagesChart"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h3 class="chart-title">Leads by Status</h3>
+      <div class="chart-wrapper">
+        <canvas id="leadsChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leads Section -->
+  <div class="section-header">
+    <h2 class="section-title">🎯 Admission Leads</h2>
+    <div class="section-controls">
+      <button class="admin-btn secondary" onclick="document.getElementById('leadsTable').scrollIntoView({behavior:'smooth'})">Filter</button>
+    </div>
+  </div>
+
+  <div class="table-container" id="leadsTable">
+    <div class="table-wrapper">
+      <table id="leadsTableBody">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Program</th>
+            <th>Status</th>
+            <th>Date</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="leadsTableRows">
+          <tr><td colspan="7" style="text-align:center;padding:40px;">Loading leads...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tickets Section -->
+  <div class="section-header">
+    <h2 class="section-title">🎫 Support Tickets</h2>
+  </div>
+
+  <div class="table-container">
+    <div class="table-wrapper">
+      <table id="ticketsTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Subject</th>
+            <th>Priority</th>
+            <th>Status</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody id="ticketsTableRows">
+          <tr><td colspan="5" style="text-align:center;padding:40px;">Loading tickets...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Security Dashboard -->
+  <div class="section-header" style="margin-top:28px;">
+    <h2 class="section-title">🛡️ Security Dashboard</h2>
+    <div class="section-controls">
+      <button class="admin-btn secondary" onclick="loadSecurityData()">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <!-- Blocked IPs -->
+  <div class="table-container">
+    <h3 style="padding:16px 20px 8px;color:var(--purple-dark);font-size:15px;">🚫 Blocked IP Addresses</h3>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>IP Address</th>
+            <th>Reason</th>
+            <th>Blocked At</th>
+            <th>Expires</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="blockedIpsRows">
+          <tr><td colspan="5" style="text-align:center;padding:20px;">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent Failed Login Attempts -->
+  <div class="table-container" style="margin-top:16px;">
+    <h3 style="padding:16px 20px 8px;color:var(--purple-dark);font-size:15px;">🔐 Recent Failed Login Attempts</h3>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>IP Address</th>
+            <th>Email</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="loginAttemptsRows">
+          <tr><td colspan="3" style="text-align:center;padding:20px;">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Manual IP Block form -->
+  <div style="background:var(--surface);border-radius:12px;padding:20px;border:1.5px solid var(--border);margin-top:16px;margin-bottom:28px;">
+    <h3 style="color:var(--purple-dark);font-size:15px;margin-bottom:12px;">🚫 Block an IP Address</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <input type="text" id="blockIpInput" placeholder="Enter IP address" style="flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;">
+      <input type="text" id="blockReasonInput" placeholder="Reason" style="flex:2;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;">
+      <button class="admin-btn secondary" onclick="blockIp()">Block IP</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let statsCache = {};
+  let messagesChart = null;
+  let leadsChart = null;
+
+  // ── XSS ESCAPE HELPER ──
+  function escapeHtml(t) {
+    if (!t) return '';
+    const d = document.createElement('div');
+    d.textContent = t;
+    return d.innerHTML;
+  }
+
+  // ── CSRF HELPER ──
+  function getCsrfToken() {
+    const m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute('content') : '';
+  }
+
+  // ── FETCH STATS ──
+  async function loadStats() {
+    try {
+      const res = await fetch('/api/admin/stats');
+      if (!res.ok) {
+        console.error('Failed to fetch stats');
+        return;
+      }
+      const data = await res.json();
+      statsCache = data;
+
+      // Update stat cards
+      document.getElementById('totalUsers').textContent = data.total_users || 0;
+      document.getElementById('totalMessages').textContent = data.total_messages || 0;
+      document.getElementById('totalLeads').textContent = data.total_leads || 0;
+      document.getElementById('avgRating').textContent = (data.avg_rating || 0).toFixed(1);
+
+      // Update charts
+      updateCharts(data);
+    } catch(err) {
+      console.error('Error loading stats:', err);
+    }
+  }
+
+  // ── FETCH LEADS ──
+  async function loadLeads() {
+    try {
+      const res = await fetch('/api/admin/leads');
+      if (!res.ok) return;
+      const data = await res.json();
+      const tbody = document.getElementById('leadsTableRows');
+
+      if (!data.leads || data.leads.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;">No leads yet</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.leads.map(lead => `
+        <tr>
+          <td>${escapeHtml(lead.name || 'N/A')}</td>
+          <td>${escapeHtml(lead.email || 'N/A')}</td>
+          <td>${escapeHtml(lead.phone || 'N/A')}</td>
+          <td>${escapeHtml(lead.interest_program || 'N/A')}</td>
+          <td><span class="badge status-${escapeHtml(lead.status || 'new')}">${escapeHtml((lead.status || 'new').toUpperCase())}</span></td>
+          <td>${new Date(lead.created_at).toLocaleDateString('en-PK')}</td>
+          <td><button class="action-btn" onclick="editLeadStatus(${lead.id}, '${escapeHtml(lead.status)}')">Edit</button></td>
+        </tr>
+      `).join('');
+    } catch(err) {
+      console.error('Error loading leads:', err);
+    }
+  }
+
+  // ── SECURITY DASHBOARD ──
+  async function loadSecurityData() {
+    try {
+      const res = await fetch('/api/admin/security');
+      if (!res.ok) return;
+      const data = await res.json();
+      
+      // Blocked IPs
+      const ipsBody = document.getElementById('blockedIpsRows');
+      if (data.blocked_ips && data.blocked_ips.length > 0) {
+        ipsBody.innerHTML = data.blocked_ips.map(ip => `<tr>
+          <td>${escapeHtml(ip.ip_address)}</td>
+          <td>${escapeHtml(ip.reason || '')}</td>
+          <td>${new Date(ip.blocked_at).toLocaleString('en-PK')}</td>
+          <td>${ip.expires_at ? new Date(ip.expires_at).toLocaleString('en-PK') : 'Never'}</td>
+          <td><button class="action-btn" onclick="unblockIp('${escapeHtml(ip.ip_address)}')">Unblock</button></td>
+        </tr>`).join('');
+      } else {
+        ipsBody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">No blocked IPs ✅</td></tr>';
+      }
+      
+      // Login attempts
+      const attBody = document.getElementById('loginAttemptsRows');
+      if (data.login_attempts && data.login_attempts.length > 0) {
+        attBody.innerHTML = data.login_attempts.map(a => `<tr>
+          <td>${escapeHtml(a.ip_address)}</td>
+          <td>${escapeHtml(a.email)}</td>
+          <td>${new Date(a.attempted_at).toLocaleString('en-PK')}</td>
+        </tr>`).join('');
+      } else {
+        attBody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--muted);">No failed attempts ✅</td></tr>';
+      }
+    } catch(err) { 
+      console.error('Security data error:', err); 
+    }
+  }
+
+  async function blockIp() {
+    const ip = document.getElementById('blockIpInput').value.trim();
+    const reason = document.getElementById('blockReasonInput').value.trim();
+    if (!ip) { alert('Enter an IP address'); return; }
+    try {
+      const res = await fetch('/api/admin/block-ip', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json', 
+          'X-CSRF-Token': getCsrfToken() 
+        },
+        body: JSON.stringify({ ip_address: ip, reason: reason || 'Manually blocked by admin' })
+      });
+      if (res.ok) { 
+        alert('IP blocked!'); 
+        loadSecurityData(); 
+        document.getElementById('blockIpInput').value=''; 
+        document.getElementById('blockReasonInput').value=''; 
+      } else { 
+        const d=await res.json(); 
+        alert(d.error||'Failed'); 
+      }
+    } catch(e) { 
+      alert('Error'); 
+    }
+  }
+
+  async function unblockIp(ip) {
+    if (!confirm('Unblock IP: ' + ip + '?')) return;
+    try {
+      const res = await fetch('/api/admin/unblock-ip', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json', 
+          'X-CSRF-Token': getCsrfToken() 
+        },
+        body: JSON.stringify({ ip_address: ip })
+      });
+      if (res.ok) { 
+        alert('IP unblocked!'); 
+        loadSecurityData(); 
+      }
+    } catch(e) { 
+      alert('Error'); 
+    }
+  }
+
+  // ── UPDATE CHARTS ──
+  function updateCharts(data) {
+    // Messages per Day
+    if (data.messages_per_day && data.messages_per_day.length > 0) {
+      const ctx = document.getElementById('messagesChart').getContext('2d');
+      const dates = data.messages_per_day.map(m => new Date(m.date).toLocaleDateString('en-PK'));
+      const counts = data.messages_per_day.map(m => m.count);
+
+      if (messagesChart) messagesChart.destroy();
+      messagesChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: dates,
+          datasets: [{
+            label: 'Messages',
+            data: counts,
+            borderColor: '#6a0dad',
+            backgroundColor: 'rgba(106, 13, 173, 0.1)',
+            borderWidth: 2,
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    // Leads by Status
+    if (data.leads_by_status && data.leads_by_status.length > 0) {
+      const ctx = document.getElementById('leadsChart').getContext('2d');
+      const statuses = data.leads_by_status.map(l => (l.status || 'new').toUpperCase());
+      const counts = data.leads_by_status.map(l => l.count);
+      const colors = ['#3b82f6', '#f59e0b', '#10b981'];
+
+      if (leadsChart) leadsChart.destroy();
+      leadsChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: statuses,
+          datasets: [{
+            data: counts,
+            backgroundColor: colors
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { position: 'bottom' }
+          }
+        }
+      });
+    }
+  }
+
+  // ── UTILITIES ──
+  function refreshStats() {
+    loadStats();
+    loadLeads();
+    loadSecurityData();
+  }
+
+  function editLeadStatus(leadId, currentStatus) {
+    alert('Lead management feature coming soon. Current status: ' + currentStatus);
+  }
+
+  function exportData() {
+    const data = {
+      timestamp: new Date().toISOString(),
+      stats: statsCache
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'admin-report.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── INIT ──
+  window.addEventListener('DOMContentLoaded', () => {
+    loadStats();
+    loadLeads();
+    loadSecurityData();
+  });
+
+  // Refresh stats every 30 seconds
+  setInterval(() => {
+    loadStats();
+    loadSecurityData();
+  }, 30000);
+</script>
+
+</body>
+</html>

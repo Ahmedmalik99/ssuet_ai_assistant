@@ -1,0 +1,9 @@
+# Requirements for scraper_from_csv.py and rag_engine.py
+
+playwright==1.44.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+requests==2.31.0
+sentence-transformers==2.2.2
+faiss-cpu==1.8.0
+numpy==1.26.4

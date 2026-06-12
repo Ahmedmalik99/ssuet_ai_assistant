@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<meta name="theme-color" content="#6a0dad">
+<meta name="description" content="SSUET AI Assistant - Your intelligent guide for Sir Syed University of Engineering and Technology">
+<title>SSUET AI Assistant</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="#" class="topbar-link">CPD</a>
+    <a href="#" class="topbar-link">Careers</a>
+    <a href="#" class="topbar-link">Online Education</a>
+    <a href="#" class="topbar-link">Alumni</a>
+    <a href="#" class="topbar-link">Gallery</a>
+    <a href="#" class="topbar-link">Contact Us</a>
+  </div>
+  <div class="topbar-right">
+    <a href="https://www.facebook.com/SSUET.Karachi" target="_blank" class="social-icon">f</a>
+    <a href="https://twitter.com/ssuet_karachi" target="_blank" class="social-icon">𝕏</a>
+    <a href="https://www.linkedin.com/school/ssuet/" target="_blank" class="social-icon">in</a>
+    <a href="https://www.youtube.com/@SSUETOfficial" target="_blank" class="social-icon">▶</a>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+    <div class="ssuet-logo">
+      <img src="https://upload.wikimedia.org/wikipedia/en/8/8d/SSUET_Logo.png" alt="SSUET Logo" style="width:60px; height:60px; object-fit:contain; display:block;" />
+    </div>
+    <div class="uni-name">
+      <div class="uni-name-top">Sir Syed University</div>
+      <div class="uni-name-bot">of Engineering &amp; Technology — Karachi</div>
+    </div>
+  </div>
+  <div class="header-center">
+    <div>
+      <div class="ai-badge-text">🤖 AI ASSISTANT</div>
+      <div class="ai-badge-sub">Powered by Artificial Intelligence</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="hec-badge">✓ HEC Recognized</div>
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      <span class="status-label">Live</span>
+    </div>
+    <div class="user-profile" onclick="toggleDropdown()">
+      <div class="user-avatar">{{ (user_name|default('U'))[:1]|upper }}</div>
+      <span class="user-name">{{ user_name|default('Guest') }}</span>
+    </div>
+    <div class="dropdown-menu" id="userDropdown">
+      <button class="dropdown-item" onclick="showTicketModal()">🎫 My Tickets</button>
+      <button class="dropdown-item" onclick="showFeedbackModal()">⭐ Feedback</button>
+      <button class="dropdown-item" onclick="window.location.href='/logout'">🚪 Logout</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <span class="sidebar-title">📚 Chat History</span>
+    <button class="btn-close-sidebar" onclick="toggleSidebar()">×</button>
+  </div>
+
+  <div class="search-container">
+    <input type="text" id="searchHistory" placeholder="Search chats..." oninput="filterSessions()">
+    <span class="search-icon">🔍</span>
+  </div>
+
+  <button class="btn-new-chat" onclick="newChat()">+ New Chat</button>
+
+  <div class="session-list" id="sessionList">
+    <!-- Sessions loaded via JS -->
+  </div>
+
+  <div class="sidebar-footer">
+    <button class="btn-settings" onclick="showSettingsModal()">⚙️ Settings</button>
+  </div>
+</div>
+
+<!-- Nav Bar -->
+<div class="navbar">
+  <div class="nav-item active">
+    <a href="/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;">AI chat bot</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/academics/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">Academics</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/academics/#" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">Students</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/admissions/undergraduate-admissions/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">Admissions</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/qec/qec-director-message/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">QEC</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/oric/#director-message/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">ORIC</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/ccpe/ccpe-policy/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">CCPE</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/academics/ms-and-phd-reports-thesis/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">Research</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/academics/pgp-introduction/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">PGP</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/archive-newsletter/#recent-publications" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">News &amp; Events</a>
+  </div>
+  <div class="nav-item">
+    <a href="https://www.ssuet.edu.pk/ccpe/" class="nav-link" style="color:#ffffff; text-decoration:none; display:block;" target="_blank" rel="noopener">Directorates</a>
+  </div>
+</div>
+
+
+<!-- Ticker -->
+<div class="ticker">
+  <span class="ticker-label">📢 NOTICE</span>
+  <div class="ticker-track">
+    <div class="ticker-text">Spring 2026 Admissions Are Now Closed &nbsp;|&nbsp; Fall 2026 Admissions Opening Soon — Stay Connected &nbsp;|&nbsp; New Program: BS Robotics &amp; Intelligent Machines Now Available &nbsp;|&nbsp; Youth Innovation Challenge 2026 &nbsp;|&nbsp; ICISCT 26 Conference — Call for Papers &nbsp;|&nbsp; www.ssuet.edu.pk</div>
+  </div>
+</div>
+
+<!-- Chat -->
+<div class="chat-container" id="chatContainer">
+  <div class="welcome" id="welcomeScreen">
+    <div class="welcome-hero">
+      <div class="ai-icon">🤖</div>
+      <h2>Assalam-o-Alaikum, {{ user_name|default('Guest') }}!</h2>
+      <p>Your intelligent guide for everything Sir Syed University. Ask about admissions, programs, departments, fee structure, campus life, and more — in English or Urdu!</p>
+    </div>
+    <div class="quick-grid">
+      <button class="quick-q" onclick="askQ('What programs does SSUET offer?')"><span class="q-icon">📚</span>All Programs at SSUET</button>
+      <button class="quick-q" onclick="askQ('What are SSUET admission requirements and how to apply?')"><span class="q-icon">📝</span>Admission Requirements</button>
+      <button class="quick-q" onclick="askQ('Tell me about the Computer Science and Engineering departments at SSUET')"><span class="q-icon">💻</span>CS &amp; Engineering Depts</button>
+      <button class="quick-q" onclick="askQ('What scholarships and fee concessions are available at SSUET?')"><span class="q-icon">💰</span>Scholarships &amp; Fees</button>
+      <button class="quick-q" onclick="askQ('What is the new BS Robotics and Intelligent Machines program?')"><span class="q-icon">🤖</span>New Robotics Program!</button>
+      <button class="quick-q" onclick="askQ('What campus facilities and student societies are at SSUET?')"><span class="q-icon">🏛️</span>Campus &amp; Student Life</button>
+    </div>
+    <div class="social-links">
+      <a href="https://www.facebook.com/SSUET.Karachi" target="_blank" class="social-icon">f</a>
+      <a href="https://twitter.com/ssuet_karachi" target="_blank" class="social-icon">𝕏</a>
+      <a href="https://www.linkedin.com/school/ssuet/" target="_blank" class="social-icon">in</a>
+      <a href="https://www.youtube.com/@SSUETOfficial" target="_blank" class="social-icon">▶</a>
+    </div>
+  </div>
+
+  <!-- Messages container -->
+  <div id="messages" aria-live="polite"></div>
+</div>
+
+<!-- Input -->
+<div class="input-area">
+  <div class="input-row">
+    <button class="btn-voice" id="voiceBtn" onclick="startVoice()" title="Voice input">🎤</button>
+    <textarea class="input-box" id="msgInput" placeholder="Ask anything about SSUET — programs, admissions, fees, campus..." rows="1" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <button class="btn-clear" onclick="clearChat()" title="Clear chat">🗑</button>
+    <button class="btn-send" id="sendBtn" onclick="sendMsg()">➤</button>
+  </div>
+  <div class="input-hint">Press Enter to send &nbsp;·&nbsp; Shift+Enter for new line &nbsp;·&nbsp; 🎤 Voice input supported</div>
+</div>
+
+<!-- Voice Modal -->
+<div class="voice-modal" id="voiceModal">
+  <div class="voice-card">
+    <div class="voice-logo">🎙️</div>
+    <div class="voice-title">Voice Input Active</div>
+    <div class="voice-waves">
+      <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+    </div>
+    <div class="voice-status" id="voiceStatus">Speak your question clearly...</div>
+    <div class="voice-transcript" id="voiceTranscript">Waiting for your voice...</div>
+    <button class="btn-stop" onclick="stopVoice()">⏹ Done — Send Question</button>
+  </div>
+</div>
+
+<!-- Ticket Modal -->
+<div class="modal" id="ticketModal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 class="modal-title">🎫 Create Support Ticket</h3>
+      <button class="modal-close" onclick="closeTicketModal()">×</button>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Subject</label>
+      <input type="text" class="form-input" id="ticketSubject" placeholder="Brief description of your issue">
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Description</label>
+      <textarea class="form-input" id="ticketDescription" rows="4" placeholder="Describe your issue in detail"></textarea>
+    </div>
+    <div class="form-group" style="margin-bottom:20px">
+      <label class="form-label">Priority</label>
+      <select class="form-input" id="ticketPriority">
+        <option value="low">Low</option>
+        <option value="medium" selected>Medium</option>
+        <option value="high">High</option>
+      </select>
+    </div>
+    <button class="btn-primary" onclick="submitTicket()" style="width:100%">Submit Ticket</button>
+  </div>
+</div>
+
+<!-- Feedback Modal -->
+<div class="modal" id="feedbackModal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 class="modal-title">⭐ Feedback & Suggestions</h3>
+      <button class="modal-close" onclick="closeFeedbackModal()">×</button>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Rating</label>
+      <div style="display:flex;gap:8px" id="ratingStars">
+        <button class="feedback-btn" onclick="setRating(1)">⭐</button>
+        <button class="feedback-btn" onclick="setRating(2)">⭐⭐</button>
+        <button class="feedback-btn" onclick="setRating(3)">⭐⭐⭐</button>
+        <button class="feedback-btn" onclick="setRating(4)">⭐⭐⭐⭐</button>
+        <button class="feedback-btn" onclick="setRating(5)">⭐⭐⭐⭐⭐</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Category</label>
+      <select class="form-input" id="feedbackCategory">
+        <option value="ai_assistant">AI Assistant</option>
+        <option value="website">Website</option>
+        <option value="admissions">Admissions</option>
+        <option value="general">General</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:20px">
+      <label class="form-label">Your Suggestions</label>
+      <textarea class="form-input" id="feedbackComment" rows="4" placeholder="Share your feedback or suggestions..."></textarea>
+    </div>
+    <button class="btn-primary" onclick="submitFeedback()" style="width:100%">Submit Feedback</button>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal" id="settingsModal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 class="modal-title">⚙️ Settings</h3>
+      <button class="modal-close" onclick="closeSettingsModal()">×</button>
+    </div>
+
+    <div class="settings-section">
+      <h4 class="settings-title">🎨 Appearance</h4>
+      <div class="setting-item">
+        <span class="setting-label">Dark Theme</span>
+        <div class="theme-toggle" id="themeToggle" onclick="toggleTheme()"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h4 class="settings-title">🔐 Security</h4>
+      <div class="password-fields">
+        <label class="form-label">Current Password</label>
+        <input type="password" class="form-input" id="currentPassword" placeholder="Enter your current password">
+
+        <label class="form-label">New Password</label>
+        <input type="password" class="form-input" id="newPassword" placeholder="Enter new password">
+
+        <label class="form-label">Confirm New Password</label>
+        <input type="password" class="form-input" id="confirmPassword" placeholder="Confirm new password">
+
+        <button class="btn-primary" onclick="changePassword()" style="width:100%; margin-top:16px;">Change Password</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h4 class="settings-title">📊 Data</h4>
+      <button class="btn-primary" onclick="exportChatHistory()" style="width:100%;">Export Chat History</button>
+      <button class="btn-primary" onclick="clearAllData()" style="width:100%; margin-top:8px; background:#fee2e2; color:#ef4444; border-color:#ef4444;">Clear All Data</button>
+    </div>
+  </div>
+</div>
+
+<!-- External JavaScript -->
+<script src="/static/js/main.js"></script>
+
+</body>
+</html>

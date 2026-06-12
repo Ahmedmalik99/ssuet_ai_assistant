@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#6a0dad">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Login - SSUET AI Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/auth.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="ssuet-branding">
+            <div class="auth-logo">🎓</div>
+        </div>
+        <h1 class="auth-title">Welcome Back!</h1>
+        <p class="auth-subtitle">Login to continue your conversation with SSUET AI Assistant</p>
+        
+        <div class="error-msg" id="errorMsg"></div>
+        <div class="success-msg" id="successMsg"></div>
+        
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label class="form-label">Email Address</label>
+                <input type="email" class="form-input" id="email" placeholder="student@ssuet.edu.pk" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-input" id="password" placeholder="Enter your password" required>
+            </div>
+            <button type="submit" class="btn-primary" id="submitBtn">Login</button>
+        </form>
+        
+        <div class="auth-footer">
+            Don't have an account? <a href="/register">Register Here</a>
+        </div>
+    </div>
+
+    <script>
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const errorMsg = document.getElementById('errorMsg');
+            const successMsg = document.getElementById('successMsg');
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+            
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            
+            try {
+                const res = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
+                    },
+                    body: JSON.stringify({email, password})
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok && data.success) {
+                    successMsg.textContent = data.message;
+                    successMsg.style.display = 'block';
+                    setTimeout(() => window.location.href = data.redirect || '/', 1000);
+                } else {
+                    if (data.lockout_minutes) {
+                        errorMsg.textContent = `🚫 Account/IP locked. Too many failed attempts. Try again in ${data.lockout_minutes} minutes.`;
+                    } else {
+                        errorMsg.textContent = data.error || 'Login failed';
+                    }
+                    errorMsg.style.display = 'block';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Login';
+                }
+            } catch(err) {
+                errorMsg.textContent = 'Connection error. Please try again.';
+                errorMsg.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Login';
+            }
+        }
+    </script>
+</body>
+</html>
