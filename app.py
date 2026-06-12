@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for, abort
 from flask_cors import CORS
+import requests
 from openai import OpenAI
 import mysql.connector
 from mysql.connector import Error as MySQLError
@@ -7,7 +8,6 @@ import bcrypt
 import os
 import sys
 import time
-import json
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -19,7 +19,7 @@ try:
     from rag_engine import SSUETRAG
 except Exception as e:
     print(f"⚠️  Could not import SSUETRAG from rag_engine: {e}")
-    SSUETRAG = None
+    SSUETRAG = None   # will cause the init to fail gracefully
 
 # Import security features
 from security import (
@@ -58,50 +58,35 @@ def get_db_config():
 
 DB_CONFIG = get_db_config()
 
-# ── NVIDIA NIM API CONFIGURATION ──
-NVIDIA_API_KEY = os.environ.get('NVIDIA_API_KEY', '')
-if not NVIDIA_API_KEY:
-    print("⚠️  WARNING: No NVIDIA_API_KEY found in environment variables!")
+# ── API CONFIGURATION (NVIDIA NIM) ──
+NVIDIA_API_KEY = os.environ.get('NVIDIA_API_KEY', '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')
+nvidia_client = OpenAI(
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=NVIDIA_API_KEY
+)
 
-NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-API_TIMEOUT = int(os.environ.get('API_TIMEOUT_SECONDS', 20))
 MAX_API_RETRIES = int(os.environ.get('MAX_API_RETRIES', 3))
+API_TIMEOUT = int(os.environ.get('API_TIMEOUT_SECONDS', 10))   # 10s per model, fast cascade
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@ssuet.edu.pk')
 
-# ── NVIDIA NIM CLIENT ──
-def get_nvidia_client():
-    """Return an OpenAI-compatible client pointed at NVIDIA NIM."""
-    return OpenAI(
-        base_url=NVIDIA_BASE_URL,
-        api_key=NVIDIA_API_KEY
-    )
-
-# ── NVIDIA NIM MODEL LIST (ordered: primary → high-quality → backup) ──
-# PRIMARY: fast + reliable RAG
-# HIGH QUALITY: reasoning / long-form RAG generation
-# BACKUP: smaller / alternate models
+# NVIDIA NIM Models — ordered fastest-first for RAG speed
 MODELS = [
-    # PRIMARY — fast + reliable
-    "mistralai/mistral-small-4-119b-2603",
-
-    # HIGH QUALITY — best reasoning
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    "meta/llama-3.1-70b-instruct",
+    "meta/llama-3.1-8b-instruct",            # Fastest — primary RAG responder
+    "mistralai/mistral-small-4-119b-2603",   # Fast + high quality
+    "meta/llama-3.1-70b-instruct",           # High quality fallback
+    "meta/llama-3.3-70b-instruct",           # Alt 70B
     "abacusai/dracarys-llama-3.1-70b-instruct",
     "bytedance/seed-oss-36b-instruct",
-
-    # BACKUP — smaller, more reliable quota
-    "meta/llama-3.3-70b-instruct",
-    "meta/llama-3.1-8b-instruct",
-    "deepseek-ai/deepseek-v4-flash",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "deepseek-ai/deepseek-v4-flash",         # Last resort
 ]
 
 SYSTEM_PROMPT = """You are the official AI Assistant for Sir Syed University of Engineering and Technology (SSUET), Karachi, Pakistan.
 
 CRITICAL RULES:
-1. RAG-FIRST APPROACH: Answer using the provided "RETRIEVED CONTEXT FROM SSUET WEBSITE" first. If the context is insufficient, use your internal knowledge about SSUET.
-2. NO CITATION NUMBERS: Do not output bracketed citation numbers or footnotes (like [1], [2], etc.) inline inside sentences. Keep sentences clean.
-3. REFERENCE LINKS AT THE BOTTOM: If you mention any reference links or URLs, list them cleanly under a "Sources:" or "References:" header at the very bottom of your response.
+1. RAG-FIRST APPROACH: Try to answer the user's question using the provided "RETRIEVED CONTEXT FROM SSUET WEBSITE" first. If the information is not present or insufficient in the context, you may use your internal knowledge or perform an online lookup to find the correct answer about SSUET.
+2. NO CITATION NUMBERS: Do not output bracketed citation numbers or footnotes (like [1], [2], [8], [47], etc.) inline inside the sentences. Keep your sentences clean.
+3. REFERENCE LINKS AT THE BOTTOM: If you mention any reference links or URLs, do not include them inline inside the text. Instead, collect them and list them cleanly under a "Sources:" or "References:" header at the very bottom of your response.
 4. Keep answers directly focused on the university, its departments, programs, and faculty.
 
 SSUET KEY FACTS:
@@ -136,42 +121,6 @@ OFFICIAL SOCIAL MEDIA:
 
 Be warm, friendly, helpful. Use bullet points. Direct fee/timetable queries to ssuet.edu.pk or +92-21-34988000."""
 
-
-# ── NVIDIA NIM CHAT COMPLETION WITH FALLBACK ──
-def call_nvidia_with_fallback(messages_payload: list) -> tuple[str | None, str | None]:
-    """
-    Try each NVIDIA NIM model in order.
-    Returns (ai_reply, model_used) on success, or (None, None) on total failure.
-    Skips models that error, return None, or timeout (> API_TIMEOUT seconds).
-    Prompt format: Context: {chunks}\nQuestion: {query}\nAnswer:
-    """
-    client = get_nvidia_client()
-
-    for model in MODELS:
-        print(f"🔄 Attempting NVIDIA model: {model}")
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages_payload,
-                max_tokens=1024,
-                timeout=API_TIMEOUT
-            )
-            ai_reply = response.choices[0].message.content
-            if not ai_reply or not ai_reply.strip():
-                print(f"⚠️  {model} returned empty reply — skipping")
-                continue
-            print(f"✅ SUCCESS with NVIDIA model: {model}")
-            return ai_reply.strip(), model
-
-        except Exception as e:
-            err_str = str(e)
-            print(f"⚠️  {model} failed: {err_str[:120]}")
-            # Don't sleep between fast failures; continue to next model
-            continue
-
-    return None, None
-
-
 # ── DATABASE CONNECTION ──
 def get_db_connection():
     """Get database connection with retry logic."""
@@ -189,7 +138,6 @@ def get_db_connection():
                 return None
     return None
 
-
 # ── DATABASE INITIALIZATION ──
 def init_db():
     """Initialize database tables if they don't exist."""
@@ -201,6 +149,7 @@ def init_db():
     try:
         cursor = conn.cursor()
 
+        # Create users table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -213,6 +162,7 @@ def init_db():
             )
         """)
 
+        # Create chat_sessions table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -223,6 +173,7 @@ def init_db():
             )
         """)
 
+        # Create messages table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -235,6 +186,7 @@ def init_db():
             )
         """)
 
+        # Create leads table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS leads (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -249,6 +201,7 @@ def init_db():
             )
         """)
 
+        # Create feedback table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -261,6 +214,7 @@ def init_db():
             )
         """)
 
+        # Create tickets table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tickets (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -274,6 +228,7 @@ def init_db():
             )
         """)
 
+        # Create faculty table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS faculty (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -285,6 +240,7 @@ def init_db():
             )
         """)
 
+        # Create otp_codes table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS otp_codes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -298,6 +254,7 @@ def init_db():
             )
         """)
 
+        # Create login_attempts table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS login_attempts (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -309,6 +266,7 @@ def init_db():
             )
         """)
 
+        # Create blocked_ips table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS blocked_ips (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -321,9 +279,11 @@ def init_db():
             )
         """)
 
+        # Add email_verified column to users (safe fallback)
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT FALSE")
         except MySQLError as err:
+            # Ignore "Duplicate column name" error (1060)
             if err.errno != 1060:
                 print(f"⚠️  Error altering users table: {err}")
 
@@ -339,15 +299,13 @@ def init_db():
         if conn:
             conn.close()
 
-
 # ── RAG INITIALIZATION ──
 try:
     rag_engine = SSUETRAG() if SSUETRAG is not None else None
     print("✅ RAG ENGINE INITIALIZED SUCCESSFULLY")
 except Exception as e:
     print(f"⚠️  RAG Engine initialization failed: {e}")
-    rag_engine = None
-
+    rag_engine = None  # Fallback to no RAG
 
 # ── IP BLOCKING MIDDLEWARE ──
 @app.before_request
@@ -356,14 +314,12 @@ def check_ip_block():
     if ip_blocker.is_blocked(get_db_connection, ip_address):
         abort(403, description="Access denied: Your IP address has been blocked due to suspicious activity.")
 
-
 # ── MAIN ROUTES ──
 @app.route('/')
 def index():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     return render_template('index.html', user_name=session.get('user_name', 'User'))
-
 
 # ── AUTH ROUTES ──
 @app.route('/register', methods=['GET', 'POST'])
@@ -379,10 +335,13 @@ def register():
             phone = sanitize_input(data.get('phone', '')).strip()
             password = data.get('password', '')
 
+            # Validation
             if not all([name, email, phone, password]):
                 return jsonify({"error": "All fields are required"}), 400
+
             if len(password) < 6:
                 return jsonify({"error": "Password must be at least 6 characters"}), 400
+
             if '@' not in email:
                 return jsonify({"error": "Invalid email address"}), 400
 
@@ -391,6 +350,8 @@ def register():
                 return jsonify({"error": "Database connection failed"}), 500
 
             cursor = conn.cursor(dictionary=True)
+
+            # Check if email verified via OTP (Must be verified in last 10 minutes)
             cursor.execute(
                 "SELECT * FROM otp_codes WHERE email=%s AND used=TRUE AND expires_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE)",
                 (email,)
@@ -400,12 +361,16 @@ def register():
                 cursor.close()
                 return jsonify({"error": "Please verify your email first via OTP code"}), 400
 
+            # Check if email exists
             cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
             if cursor.fetchone():
                 cursor.close()
                 return jsonify({"error": "Email already registered"}), 400
 
+            # Hash password
             password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+            # Insert user
             cursor.execute(
                 "INSERT INTO users (name, email, phone, password_hash, email_verified) VALUES (%s, %s, %s, %s, TRUE)",
                 (name, email, phone, password_hash)
@@ -413,11 +378,13 @@ def register():
             conn.commit()
             user_id = cursor.lastrowid
 
+            # Create lead entry
             cursor.execute(
                 "INSERT INTO leads (user_id, name, email, phone) VALUES (%s, %s, %s, %s)",
                 (user_id, name, email, phone)
             )
             conn.commit()
+
             cursor.close()
             return jsonify({"success": True, "message": "Registration successful! Please login."})
 
@@ -429,7 +396,6 @@ def register():
                 conn.close()
 
     return render_template('register.html')
-
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute")
@@ -446,6 +412,7 @@ def login():
             if not email or not password:
                 return jsonify({"error": "Email and password required"}), 400
 
+            # Check lockout
             locked, mins = lockout.is_locked(get_db_connection, email, ip_address)
             if locked:
                 return jsonify({
@@ -463,31 +430,39 @@ def login():
             cursor.close()
 
             if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
+                # Reset failed login attempts on success
                 lockout.clear_attempts(get_db_connection, email)
+
                 session['user_id'] = user['id']
                 session['user_name'] = user['name']
                 session['user_email'] = user['email']
 
+                # Update last login
                 cursor = conn.cursor()
                 cursor.execute("UPDATE users SET last_login = NOW() WHERE id = %s", (user['id'],))
                 conn.commit()
                 cursor.close()
 
+                # Redirect admin to admin panel
                 if email == ADMIN_EMAIL:
                     return jsonify({
                         "success": True,
                         "message": "Login successful! Redirecting to admin panel...",
                         "redirect": "/admin"
                     })
-                return jsonify({"success": True, "message": "Login successful!", "redirect": "/"})
 
+                return jsonify({
+                    "success": True,
+                    "message": "Login successful!",
+                    "redirect": "/"
+                })
             else:
+                # Record failed login attempt
                 lockout.record_failed_attempt(get_db_connection, ip_address, email)
+
+                # Check if this IP has surpassed threshold (10+ attempts in last 15 mins)
                 cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT COUNT(*) FROM login_attempts WHERE ip_address = %s AND attempted_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)",
-                    (ip_address,)
-                )
+                cursor.execute("SELECT COUNT(*) FROM login_attempts WHERE ip_address = %s AND attempted_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)", (ip_address,))
                 failed_count = cursor.fetchone()[0]
                 cursor.close()
 
@@ -506,14 +481,12 @@ def login():
 
     return render_template('login.html')
 
-
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('login'))
 
-
-# ── OTP ENDPOINTS ──
+# ── NEW OTP ENDPOINTS ──
 @app.route('/api/send-otp', methods=['POST'])
 @limiter.limit("10 per minute")
 @csrf_protect
@@ -527,8 +500,10 @@ def send_otp():
         if not email or '@' not in email:
             return jsonify({"error": "A valid email address is required"}), 400
 
+        # Generate OTP code
         otp_code = otp_manager.generate_otp()
 
+        # Save to database (expires in 5 minutes)
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Database connection failed"}), 500
@@ -541,6 +516,7 @@ def send_otp():
         conn.commit()
         cursor.close()
 
+        # Send email
         success, err = otp_manager.send_otp_email(email, otp_code, name)
         if not success:
             return jsonify({"error": f"Failed to send email: {err}"}), 500
@@ -553,7 +529,6 @@ def send_otp():
     finally:
         if conn:
             conn.close()
-
 
 @app.route('/api/verify-otp', methods=['POST'])
 @limiter.limit("10 per minute")
@@ -583,7 +558,11 @@ def verify_otp():
             cursor.close()
             return jsonify({"error": "Invalid or expired verification code"}), 400
 
-        cursor.execute("UPDATE otp_codes SET used = TRUE WHERE id = %s", (record['id'],))
+        # Mark as used
+        cursor.execute(
+            "UPDATE otp_codes SET used = TRUE WHERE id = %s",
+            (record['id'],)
+        )
         conn.commit()
         cursor.close()
 
@@ -596,8 +575,7 @@ def verify_otp():
         if conn:
             conn.close()
 
-
-# ── CHAT ENDPOINT — NVIDIA NIM + RAG ──
+# ── IMPROVED API CHAT ENDPOINT WITH RERANKING ──
 @app.route('/api/chat', methods=['POST'])
 @login_required
 @csrf_protect
@@ -612,7 +590,7 @@ def chat():
         if not user_message:
             return jsonify({"error": "Message cannot be empty"}), 400
 
-        # ── Create session if needed ──
+        # Create or use existing session
         if not session_id:
             conn = get_db_connection()
             if conn:
@@ -630,7 +608,7 @@ def chat():
                 finally:
                     conn.close()
 
-        # ── Save user message ──
+        # Save user message
         try:
             conn = get_db_connection()
             if conn:
@@ -647,7 +625,7 @@ def chat():
             if conn:
                 conn.close()
 
-        # ── Retrieve chat history (last 20 messages) ──
+        # Get chat history (last 20 messages)
         history = []
         try:
             conn = get_db_connection()
@@ -657,10 +635,7 @@ def chat():
                     "SELECT sender, content FROM messages WHERE session_id = %s ORDER BY created_at ASC LIMIT 20",
                     (session_id,)
                 )
-                history = [
-                    {"role": "assistant" if row[0] == "ai" else "user", "content": row[1]}
-                    for row in cursor.fetchall()
-                ]
+                history = [{"role": "assistant" if row[0] == "ai" else "user", "content": row[1]} for row in cursor.fetchall()]
                 cursor.close()
         except Exception as db_e:
             print(f"⚠️  DB Error retrieving history: {db_e}")
@@ -668,29 +643,29 @@ def chat():
             if conn:
                 conn.close()
 
-        # ── RAG CONTEXT RETRIEVAL ──
+        # ── RAG CONTEXT AUGMENTATION ──
+        # Retrieve only top 20 chunks (reduced from 50 for speed)
         rag_context = ""
         if rag_engine:
             try:
-                chunks = rag_engine.retrieve(user_message, k=50)
+                chunks = rag_engine.retrieve(user_message, k=20)
                 print(f"🔍 RAG retrieved {len(chunks)} chunks")
 
                 if chunks:
                     header = "=== RETRIEVED CONTEXT FROM SSUET WEBSITE ===\n"
-                    footer = "\n=== END OF RETRIEVED CONTEXT ===\n"
+                    footer = "=== END OF RETRIEVED CONTEXT ===\n"
                     parts = []
                     cur_len = 0
-                    max_chars = 8000  # NVIDIA NIM handles large contexts well
+                    MAX_CONTEXT_CHARS = 3000  # tight limit for fast inference
 
                     for ch in chunks:
-                        src = f"[Source: {ch.get('title', 'SSUET')} ({ch.get('url', '')})]"
+                        src = f"[Source: {ch['title']} ({ch['url']})]"
                         txt = ch.get("content_text", "").strip() or ch.get("content", "").strip()
                         block = f"{src}\n{txt}\n"
-                        if cur_len + len(block) > max_chars:
-                            remaining = max_chars - cur_len - len(src) - 50
-                            if remaining > 200:
-                                block = f"{src}\n{txt[:remaining]}... [truncated]\n"
-                                parts.append(block)
+                        if cur_len + len(block) > MAX_CONTEXT_CHARS:
+                            space = MAX_CONTEXT_CHARS - cur_len - len(src) - 30
+                            if space > 150:
+                                parts.append(f"{src}\n{txt[:space]}...\n")
                             break
                         parts.append(block)
                         cur_len += len(block)
@@ -699,64 +674,75 @@ def chat():
                     print(f"🔍 RAG context: {len(rag_context)} chars from {len(parts)} chunks")
 
             except Exception as e:
-                print(f"⚠️  RAG retrieval error: {e}")
+                print(f"⚠️  RAG error: {e}")
                 rag_context = ""
-        else:
-            print("⚠️  RAG engine not available — answering from model knowledge only")
 
-        # ── BUILD MESSAGES PAYLOAD ──
-        # Format: system prompt + RAG context → history → current question
-        system_content = SYSTEM_PROMPT
+        # ── BUILD MESSAGES ──
         if rag_context:
-            system_content += f"\n\n{rag_context}"
+            system_content = SYSTEM_PROMPT + "\n\n" + rag_context
+        else:
+            system_content = SYSTEM_PROMPT
 
         messages_payload = [
             {"role": "system", "content": system_content},
             *history,
         ]
 
-        # If the last message in history is already the user message, don't duplicate it
-        if not history or history[-1].get("content") != user_message:
-            # Append with explicit RAG prompt format for the final user turn
-            if rag_context:
-                final_user_content = f"Context:\n{rag_context}\n\nQuestion: {user_message}\n\nAnswer:"
-            else:
-                final_user_content = user_message
-            messages_payload.append({"role": "user", "content": final_user_content})
+        # ── NVIDIA NIM FALLBACK LOGIC ──
+        last_error = None
 
-        # ── CALL NVIDIA NIM WITH FALLBACK ──
-        ai_reply, model_used = call_nvidia_with_fallback(messages_payload)
+        for model in MODELS:
+            try:
+                print(f"🔄 Attempting NVIDIA model: {model}")
 
-        if not ai_reply:
-            print("❌ All NVIDIA NIM models exhausted")
-            return jsonify({
-                "reply": "❌ All AI models are currently unavailable. Please try again in a few moments.",
-                "session_id": session_id
-            }), 503
-
-        # ── Save AI response ──
-        try:
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO messages (session_id, sender, content, model_used) VALUES (%s, %s, %s, %s)",
-                    (session_id, 'ai', ai_reply, model_used)
+                completion = nvidia_client.chat.completions.create(
+                    model=model,
+                    messages=messages_payload,
+                    max_tokens=512,       # enough for RAG answers, faster
+                    temperature=0.1,      # deterministic = faster + better RAG
+                    timeout=API_TIMEOUT
                 )
-                conn.commit()
-                cursor.close()
-        except Exception as db_e:
-            print(f"⚠️  DB Error saving AI response: {db_e}")
-        finally:
-            if conn:
-                conn.close()
 
-        return jsonify({
-            "reply": ai_reply,
-            "session_id": session_id,
-            "model": model_used
-        })
+                ai_reply = completion.choices[0].message.content
 
+                if not ai_reply or not ai_reply.strip():
+                    last_error = "Empty response"
+                    print(f"⚠️  Empty response from {model}")
+                    continue
+
+                # Save AI response to DB
+                try:
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "INSERT INTO messages (session_id, sender, content, model_used) VALUES (%s, %s, %s, %s)",
+                            (session_id, 'ai', ai_reply, model)
+                        )
+                        conn.commit()
+                        cursor.close()
+                except Exception as db_e:
+                    print(f"⚠️  DB Error saving AI response: {db_e}")
+                finally:
+                    if conn:
+                        conn.close()
+
+                print(f"✅ SUCCESS! Used Model: {model}")
+                return jsonify({
+                    "reply": ai_reply,
+                    "session_id": session_id,
+                    "model": model
+                })
+
+            except Exception as e:
+                last_error = str(e)
+                print(f"⚠️  {model} failed: {e}")
+                continue
+
+        # All models exhausted
+        error_message = "❌ All AI models are currently unavailable. Please try again in a few moments."
+        print(f"❌ All NVIDIA NIM attempts exhausted. Last error: {last_error}")
+        return jsonify({"reply": error_message, "session_id": session_id}), 503
     except Exception as e:
         print(f"❌ CRITICAL SERVER ERROR in /api/chat: {e}")
         return jsonify({"reply": "❌ Server error. Please try again."}), 500
@@ -764,8 +750,6 @@ def chat():
         if conn:
             conn.close()
 
-
-# ── SESSION / MESSAGE ROUTES ──
 @app.route('/api/sessions', methods=['GET'])
 @login_required
 def get_sessions():
@@ -782,6 +766,7 @@ def get_sessions():
         )
         sessions = cursor.fetchall()
         cursor.close()
+
         return jsonify({"sessions": sessions})
     except Exception as e:
         print(f"❌ Error fetching sessions: {e}")
@@ -789,7 +774,6 @@ def get_sessions():
     finally:
         if conn:
             conn.close()
-
 
 @app.route('/api/messages/<int:session_id>', methods=['GET'])
 @login_required
@@ -801,6 +785,8 @@ def get_messages(session_id):
             return jsonify({"error": "Database connection failed"}), 500
 
         cursor = conn.cursor(dictionary=True)
+
+        # Verify session belongs to user
         cursor.execute("SELECT user_id FROM chat_sessions WHERE id = %s", (session_id,))
         result = cursor.fetchone()
 
@@ -814,6 +800,7 @@ def get_messages(session_id):
         )
         messages = cursor.fetchall()
         cursor.close()
+
         return jsonify({"messages": messages})
     except Exception as e:
         print(f"❌ Error fetching messages: {e}")
@@ -821,7 +808,6 @@ def get_messages(session_id):
     finally:
         if conn:
             conn.close()
-
 
 # ── FEEDBACK ROUTES ──
 @app.route('/api/feedback', methods=['POST'])
@@ -849,6 +835,7 @@ def submit_feedback():
         )
         conn.commit()
         cursor.close()
+
         return jsonify({"success": True, "message": "Thank you for your feedback!"})
     except Exception as e:
         print(f"❌ Error submitting feedback: {e}")
@@ -856,7 +843,6 @@ def submit_feedback():
     finally:
         if conn:
             conn.close()
-
 
 # ── TICKET ROUTES ──
 @app.route('/api/tickets', methods=['POST', 'GET'])
@@ -891,6 +877,7 @@ def tickets():
             conn.commit()
             ticket_id = cursor.lastrowid
             cursor.close()
+
             return jsonify({"success": True, "ticket_id": ticket_id, "message": "Ticket created successfully!"})
 
         else:
@@ -900,6 +887,7 @@ def tickets():
             )
             tickets_list = cursor.fetchall()
             cursor.close()
+
             return jsonify({"tickets": tickets_list})
 
     except Exception as e:
@@ -909,8 +897,7 @@ def tickets():
         if conn:
             conn.close()
 
-
-# ── PASSWORD CHANGE ──
+# ── PASSWORD CHANGE ENDPOINT ──
 @app.route('/api/change-password', methods=['POST'])
 @login_required
 @csrf_protect
@@ -923,6 +910,7 @@ def change_password():
 
         if not current_password or not new_password:
             return jsonify({"error": "Current and new passwords are required"}), 400
+
         if len(new_password) < 6:
             return jsonify({"error": "New password must be at least 6 characters"}), 400
 
@@ -942,10 +930,15 @@ def change_password():
             cursor.close()
             return jsonify({"error": "Current password is incorrect"}), 401
 
-        new_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        cursor.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, session['user_id']))
+        new_password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+        cursor.execute(
+            "UPDATE users SET password_hash = %s WHERE id = %s",
+            (new_password_hash, session['user_id'])
+        )
         conn.commit()
         cursor.close()
+
         return jsonify({"success": True, "message": "Password changed successfully!"})
 
     except Exception as e:
@@ -955,16 +948,16 @@ def change_password():
         if conn:
             conn.close()
 
-
 # ── ADMIN ROUTES ──
 @app.route('/admin')
 def admin():
     if 'user_id' not in session:
         return redirect(url_for('login'))
+
     if session.get('user_email') != ADMIN_EMAIL:
         return render_template('index.html', user_name=session.get('user_name', 'User'))
-    return render_template('admin.html', admin_name=session.get('user_name', 'Admin'))
 
+    return render_template('admin.html', admin_name=session.get('user_name', 'Admin'))
 
 @app.route('/api/admin/stats')
 @admin_required
@@ -976,6 +969,7 @@ def admin_stats():
             return jsonify({"error": "Database connection failed"}), 500
 
         cursor = conn.cursor(dictionary=True)
+
         stats = {}
 
         cursor.execute("SELECT COUNT(*) as count FROM users")
@@ -1015,7 +1009,6 @@ def admin_stats():
         if conn:
             conn.close()
 
-
 @app.route('/api/admin/leads')
 @admin_required
 def admin_leads():
@@ -1029,6 +1022,7 @@ def admin_leads():
         cursor.execute("SELECT * FROM leads ORDER BY created_at DESC")
         leads = cursor.fetchall()
         cursor.close()
+
         return jsonify({"leads": leads})
     except Exception as e:
         print(f"❌ Error fetching leads: {e}")
@@ -1037,9 +1031,8 @@ def admin_leads():
         if conn:
             conn.close()
 
-
 @app.route('/api/admin/faculty')
-@admin_required
+@admin_required  # Bug #11 fix: Enforce admin check
 def get_faculty():
     conn = None
     try:
@@ -1051,6 +1044,7 @@ def get_faculty():
         cursor.execute("SELECT * FROM faculty ORDER BY department, name")
         faculty = cursor.fetchall()
         cursor.close()
+
         return jsonify({"faculty": faculty})
     except Exception as e:
         print(f"❌ Error fetching faculty: {e}")
@@ -1059,30 +1053,32 @@ def get_faculty():
         if conn:
             conn.close()
 
-
-# ── SECURITY ADMIN ENDPOINTS ──
+# ── NEW SECURITY ADMIN ENDPOINTS ──
 @app.route('/api/admin/security', methods=['GET'])
 @admin_required
 def admin_security():
     try:
         blocked_ips = ip_blocker.get_blocked_ips(get_db_connection)
         login_attempts = lockout.get_recent_attempts(get_db_connection)
-
+        
+        # Convert any datetime objects to string format for JSON serialization
         for ip in blocked_ips:
             if ip.get('blocked_at'):
                 ip['blocked_at'] = ip['blocked_at'].isoformat()
             if ip.get('expires_at'):
                 ip['expires_at'] = ip['expires_at'].isoformat()
-
+                
         for attempt in login_attempts:
             if attempt.get('attempted_at'):
                 attempt['attempted_at'] = attempt['attempted_at'].isoformat()
 
-        return jsonify({"blocked_ips": blocked_ips, "login_attempts": login_attempts})
+        return jsonify({
+            "blocked_ips": blocked_ips,
+            "login_attempts": login_attempts
+        })
     except Exception as e:
         print(f"❌ Error fetching admin security stats: {e}")
         return jsonify({"error": "Failed to fetch security data"}), 500
-
 
 @app.route('/api/admin/block-ip', methods=['POST'])
 @admin_required
@@ -1102,7 +1098,6 @@ def admin_block_ip():
         print(f"❌ Error blocking IP: {e}")
         return jsonify({"error": "Failed to block IP"}), 500
 
-
 @app.route('/api/admin/unblock-ip', methods=['POST'])
 @admin_required
 @csrf_protect
@@ -1120,7 +1115,6 @@ def admin_unblock_ip():
         print(f"❌ Error unblocking IP: {e}")
         return jsonify({"error": "Failed to unblock IP"}), 500
 
-
 # ── HEALTH CHECK ──
 @app.route('/api/health')
 def health():
@@ -1128,43 +1122,38 @@ def health():
         "status": "ok",
         "message": "SSUET AI Server is running!",
         "environment": ENVIRONMENT,
-        "api_provider": "NVIDIA NIM",
         "models_available": len(MODELS),
-        "primary_model": MODELS[0]
+        "nvidia_models": len(MODELS)
     })
-
 
 # ── ERROR HANDLERS ──
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"error": "Endpoint not found"}), 404
 
-
 @app.errorhandler(500)
 def server_error(e):
-    print(f"❌ Server error: {e}")
+    print(f"� Server error: {e}")
     return jsonify({"error": "Internal server error"}), 500
-
 
 # ── MAIN ──
 if __name__ == '__main__':
+    # Initialize DB (Bug #8 fix)
     init_db()
 
-    print("\n" + "=" * 70)
-    print("🎓 SSUET AI ASSISTANT SERVER  —  NVIDIA NIM EDITION")
-    print("=" * 70)
-    print(f"Environment  : {ENVIRONMENT}")
-    print(f"Debug Mode   : {DEBUG}")
-    print(f"Database     : {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
-    print(f"API Provider : NVIDIA NIM  ({NVIDIA_BASE_URL})")
-    print(f"Models       : {len(MODELS)} configured")
-    print(f"Primary Model: {MODELS[0]}")
-    print(f"Admin Email  : {ADMIN_EMAIL}")
-    print("=" * 70)
-    print("✓ Login URL  : http://localhost:5000/login")
-    print("✓ Register   : http://localhost:5000/register")
-    print("✓ Admin URL  : http://localhost:5000/admin")
-    print("=" * 70 + "\n")
+    print("\n" + "="*70)
+    print("🎓 SSUET AI ASSISTANT SERVER")
+    print("="*70)
+    print(f"Environment: {ENVIRONMENT}")
+    print(f"Debug Mode: {DEBUG}")
+    print(f"Database: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
+    print(f"Models: {len(MODELS)} available")
+    print(f"Admin Email: {ADMIN_EMAIL}")
+    print("="*70)
+    print("✓ Login URL: http://localhost:5000/login")
+    print("✓ Register URL: http://localhost:5000/register")
+    print("✓ Admin URL: http://localhost:5000/admin")  # Bug #9 fix: always print admin URL
+    print("="*70 + "\n")
 
     app.run(
         host="0.0.0.0",
